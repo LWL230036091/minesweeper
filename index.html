@@ -1,0 +1,438 @@
+<!-- created by dodo choy -->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>踩地雷遊戲</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin: 20px;
+      }
+      #controls {
+        margin-bottom: 10px;
+      }
+      #grid {
+        display: grid;
+        grid-template-columns: repeat(10, 30px);
+        grid-gap: 2px;
+      }
+      .cell {
+        width: 30px;
+        height: 30px;
+        background: #ccc;
+        text-align: center;
+        line-height: 30px;
+        font-size: 18px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .cell.revealed {
+        background: #eee;
+        cursor: default;
+      }
+      .cell.flagged {
+        background: #ffeb3b;
+      }
+      .cell.mine {
+        background: #e91e63;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>踩地雷(Created by Dodo Choy)</h1>
+    <div id="timer" style="font-size: 20px; margin-bottom: 8px">時間: 0 秒</div>
+    <div id="difficulty" style="margin-bottom: 10px">
+      <label
+        >難度：
+        <select id="difficultySelect">
+          <option value="easy">Weak (9x9, 10雷)</option>
+          <option value="hard">Normal (24x30, 160雷)</option>
+          <option value="custom">DIY</option>
+        </select>
+      </label>
+    </div>
+    <div id="settings" style="margin-bottom: 10px">
+      <label
+        >列數:
+        <input
+          id="rowInput"
+          type="number"
+          min="5"
+          max="30"
+          value="10"
+          style="width: 50px"
+      /></label>
+      <label
+        >行數:
+        <input
+          id="colInput"
+          type="number"
+          min="5"
+          max="30"
+          value="10"
+          style="width: 50px"
+      /></label>
+      <label
+        >地雷數:
+        <input
+          id="mineInput"
+          type="number"
+          min="1"
+          max="100"
+          value="10"
+          style="width: 60px"
+      /></label>
+    </div>
+    <div id="controls">
+      <button id="resetBtn">重新開始</button>
+      <span id="mineCount">剩餘地雷: 10</span>
+      <button id="modeBtn">切換到標記模式</button>
+    </div>
+    <div id="grid"></div>
+
+    <script>
+      (function () {
+        let ROWS = 10,
+          COLS = 10,
+          TOTAL_MINES = 10;
+        let gridData = [],
+          mineCount = TOTAL_MINES,
+          revealedCount = 0,
+          gameOver = false;
+        // false = mine / true = sweeper
+        let markMode = false;
+        const gridEl = document.getElementById("grid");
+        const mineCountEl = document.getElementById("mineCount");
+        const resetBtn = document.getElementById("resetBtn");
+        const modeBtn = document.getElementById("modeBtn");
+        const rowInput = document.getElementById("rowInput");
+        const colInput = document.getElementById("colInput");
+        const mineInput = document.getElementById("mineInput");
+        const difficultySelect = document.getElementById("difficultySelect");
+        // set difficul
+        difficultySelect.addEventListener("change", function () {
+          if (this.value === "easy") {
+            rowInput.value = 9;
+            colInput.value = 9;
+            mineInput.value = 10;
+            rowInput.disabled = true;
+            colInput.disabled = true;
+            mineInput.disabled = true;
+          } else if (this.value === "hard") {
+            rowInput.value = 24;
+            colInput.value = 30;
+            mineInput.value = 160;
+            rowInput.disabled = true;
+            colInput.disabled = true;
+            mineInput.disabled = true;
+          } else {
+            rowInput.disabled = false;
+            colInput.disabled = false;
+            mineInput.disabled = false;
+          }
+          init();
+        });
+
+        // default hard laaa
+        difficultySelect.value = "hard";
+        rowInput.value = 24;
+        colInput.value = 30;
+        mineInput.value = 160;
+        rowInput.disabled = true;
+        colInput.disabled = true;
+        mineInput.disabled = true;
+        const timerEl = document.getElementById("timer");
+        let timer = null;
+        let timeElapsed = 0;
+        let firstClick = true;
+
+        function init() {
+          // set default mode
+          markMode = false;
+          modeBtn.textContent = "切換到標記模式";
+          // timer reset
+          if (timer) {
+            // fix the bug which timer restart can start timer
+            clearInterval(timer);
+            timer = null;
+          }
+          timeElapsed = 0;
+          timerEl.textContent = `時間: 0 秒`;
+          firstClick = true;
+
+          // user input
+          ROWS = parseInt(rowInput.value) || 10;
+          COLS = parseInt(colInput.value) || 10;
+          TOTAL_MINES = parseInt(mineInput.value) || 10;
+          if (TOTAL_MINES > ROWS * COLS - 1) {
+            TOTAL_MINES = ROWS * COLS - 1;
+            mineInput.value = TOTAL_MINES;
+          }
+          gridEl.style.gridTemplateColumns = `repeat(${COLS}, 30px)`;
+
+          gridData = [];
+          mineCount = TOTAL_MINES;
+          revealedCount = 0;
+          gameOver = false;
+          mineCountEl.textContent = `剩餘地雷: ${mineCount}`;
+
+          gridEl.innerHTML = "";
+
+          for (let r = 0; r < ROWS; r++) {
+            gridData[r] = [];
+            for (let c = 0; c < COLS; c++) {
+              gridData[r][c] = {
+                mine: false,
+                count: 0,
+                revealed: false,
+                flagged: false,
+              };
+            }
+          }
+
+          let placed = 0;
+          while (placed < TOTAL_MINES) {
+            const r = Math.floor(Math.random() * ROWS);
+            const c = Math.floor(Math.random() * COLS);
+            if (!gridData[r][c].mine) {
+              gridData[r][c].mine = true;
+              placed++;
+            }
+          }
+
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              if (gridData[r][c].mine) continue;
+              let cnt = 0;
+              for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                  const nr = r + dr,
+                    nc = c + dc;
+                  if (
+                    nr >= 0 &&
+                    nr < ROWS &&
+                    nc >= 0 &&
+                    nc < COLS &&
+                    gridData[nr][nc].mine
+                  )
+                    cnt++;
+                }
+              }
+              gridData[r][c].count = cnt;
+            }
+          }
+
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              const cell = document.createElement("div");
+              cell.classList.add("cell");
+              cell.dataset.r = r;
+              cell.dataset.c = c;
+
+              cell.addEventListener("click", (e) => {
+                if (markMode) {
+                  const cellData = gridData[r][c];
+                  if (cellData.revealed && cellData.count > 0) {
+                    autoOpenAround(r, c);
+                  } else {
+                    onFlag(r, c);
+                  }
+                } else {
+                  // timer here
+                  if (timeElapsed === 0 && !timer && !gameOver) {
+                    timer = setInterval(() => {
+                      timeElapsed++;
+                      timerEl.textContent = `時間: ${timeElapsed} 秒`;
+                    }, 1000);
+                  }
+                  if (firstClick) {
+                    // if first click is mine, regenerate mines
+                    while (gridData[r][c].mine || gridData[r][c].count !== 0) {
+                      // regen mines here
+                      for (let rr = 0; rr < ROWS; rr++) {
+                        for (let cc = 0; cc < COLS; cc++) {
+                          gridData[rr][cc].mine = false;
+                          gridData[rr][cc].count = 0;
+                        }
+                      }
+                      let placed = 0;
+                      while (placed < TOTAL_MINES) {
+                        const rr = Math.floor(Math.random() * ROWS);
+                        const cc = Math.floor(Math.random() * COLS);
+                        if ((rr !== r || cc !== c) && !gridData[rr][cc].mine) {
+                          gridData[rr][cc].mine = true;
+                          placed++;
+                        }
+                      }
+                      // 重新計算 count
+                      for (let rr = 0; rr < ROWS; rr++) {
+                        for (let cc = 0; cc < COLS; cc++) {
+                          if (gridData[rr][cc].mine) continue;
+                          let cnt = 0;
+                          for (let dr = -1; dr <= 1; dr++) {
+                            for (let dc = -1; dc <= 1; dc++) {
+                              const nr = rr + dr,
+                                nc = cc + dc;
+                              if (
+                                nr >= 0 &&
+                                nr < ROWS &&
+                                nc >= 0 &&
+                                nc < COLS &&
+                                gridData[nr][nc].mine
+                              )
+                                cnt++;
+                            }
+                          }
+                          gridData[rr][cc].count = cnt;
+                        }
+                      }
+                    }
+                    firstClick = false;
+                  }
+                  onReveal(r, c);
+                }
+              });
+              function autoOpenAround(r, c) {
+                const cellData = gridData[r][c];
+                if (!cellData.revealed || cellData.count === 0) return;
+                let flaggedCount = 0;
+                for (let dr = -1; dr <= 1; dr++) {
+                  for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr,
+                      nc = c + dc;
+                    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                      if (gridData[nr][nc].flagged) flaggedCount++;
+                    }
+                  }
+                }
+                if (flaggedCount !== cellData.count) return;
+                for (let dr = -1; dr <= 1; dr++) {
+                  for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr,
+                      nc = c + dc;
+                    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                      if (
+                        !gridData[nr][nc].revealed &&
+                        !gridData[nr][nc].flagged
+                      ) {
+                        onReveal(nr, nc);
+                      }
+                    }
+                  }
+                }
+              }
+              cell.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                if (!markMode) onFlag(r, c);
+              });
+
+              gridEl.appendChild(cell);
+            }
+          }
+        }
+
+        function onReveal(r, c) {
+          if (gameOver) return;
+          const cellData = gridData[r][c];
+          if (cellData.revealed || cellData.flagged) return;
+
+          const el = getCellEl(r, c);
+          cellData.revealed = true;
+          el.classList.add("revealed");
+
+          if (cellData.mine) {
+            el.classList.add("mine");
+            el.textContent = "💣";
+            revealAllMines();
+            gameOver = true;
+            if (timer) clearInterval(timer);
+            setTimeout(() => alert("💥 遊戲結束！"), 10);
+            return;
+          }
+
+          revealedCount++;
+          if (cellData.count > 0) {
+            el.textContent = cellData.count;
+          } else {
+            for (let dr = -1; dr <= 1; dr++) {
+              for (let dc = -1; dc <= 1; dc++) {
+                const nr = r + dr,
+                  nc = c + dc;
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                  if (!gridData[nr][nc].revealed) onReveal(nr, nc);
+                }
+              }
+            }
+          }
+
+          checkWin();
+        }
+
+        function onFlag(r, c) {
+          if (gameOver) return;
+          const cellData = gridData[r][c];
+          if (cellData.revealed) return;
+
+          const el = getCellEl(r, c);
+          cellData.flagged = !cellData.flagged;
+          if (cellData.flagged) {
+            el.classList.add("flagged");
+            el.textContent = "🚩";
+            mineCount--;
+          } else {
+            el.classList.remove("flagged");
+            el.textContent = "";
+            mineCount++;
+          }
+          mineCountEl.textContent = `剩餘地雷: ${mineCount}`;
+          checkWin();
+        }
+
+        function revealAllMines() {
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              if (gridData[r][c].mine) {
+                const el = getCellEl(r, c);
+                el.classList.add("revealed", "mine");
+                el.textContent = "💣";
+              }
+            }
+          }
+        }
+
+        function checkWin() {
+          if (revealedCount === ROWS * COLS - TOTAL_MINES && mineCount === 0) {
+            gameOver = true;
+            if (timer) clearInterval(timer);
+            setTimeout(() => alert("Yoooooooooooooooooo! 恭喜，贏了！"), 10);
+          }
+        }
+
+        function getCellEl(r, c) {
+          return gridEl.children[r * COLS + c];
+        }
+
+        resetBtn.addEventListener("click", init);
+        modeBtn.addEventListener("click", () => {
+          markMode = !markMode;
+          modeBtn.textContent = markMode
+            ? "切換到踩地雷模式"
+            : "切換到標記模式";
+        });
+        // refresh when change setting
+        rowInput.addEventListener("change", init);
+        colInput.addEventListener("change", init);
+        mineInput.addEventListener("change", init);
+
+        init();
+      })();
+    </script>
+  </body>
+</html>
